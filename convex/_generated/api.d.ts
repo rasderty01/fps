@@ -14,8 +14,11 @@ import type {
   FunctionReference,
 } from "convex/server";
 import type * as auth from "../auth.js";
+import type * as crons from "../crons.js";
 import type * as http from "../http.js";
-import type * as messages from "../messages.js";
+import type * as invites from "../invites.js";
+import type * as organization from "../organization.js";
+import type * as orginviteprovider from "../orginviteprovider.js";
 import type * as users from "../users.js";
 
 /**
@@ -28,8 +31,11 @@ import type * as users from "../users.js";
  */
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
+  crons: typeof crons;
   http: typeof http;
-  messages: typeof messages;
+  invites: typeof invites;
+  organization: typeof organization;
+  orginviteprovider: typeof orginviteprovider;
   users: typeof users;
 }>;
 export declare const api: FilterApi<
