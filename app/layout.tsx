@@ -5,6 +5,8 @@ import "./globals.css";
 import { ConvexAuthNextjsServerProvider } from "@convex-dev/auth/nextjs/server";
 
 import { ConvexClientProvider } from "@/components/providers/ConvexClientProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/toaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -34,15 +36,19 @@ export default function RootLayout({
       {/* `suppressHydrationWarning` only affects the html tag,
       // and is needed by `ThemeProvider` which sets the theme
       // class attribute on it */}
-      <ConvexClientProvider>
-        <html lang="en" suppressHydrationWarning>
-          <body
-            className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-          >
-            <ThemeProvider attribute="class">{children}</ThemeProvider>
-          </body>
-        </html>
-      </ConvexClientProvider>
+
+      <html lang="en" suppressHydrationWarning>
+        <body
+          className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        >
+          <ConvexClientProvider>
+            <ThemeProvider attribute="class">
+              <TooltipProvider>{children}</TooltipProvider>
+            </ThemeProvider>
+            <Toaster />
+          </ConvexClientProvider>
+        </body>
+      </html>
     </ConvexAuthNextjsServerProvider>
   );
 }

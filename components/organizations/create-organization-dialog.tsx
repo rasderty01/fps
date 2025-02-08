@@ -1,19 +1,14 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
+import * as z from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { useForm } from "react-hook-form";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useOrganizationStore } from "@/hooks/store/useOrganizationStore";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { useToast } from "@/components/ui/use-toast";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import {
   Dialog,
   DialogContent,
@@ -21,87 +16,187 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
 import { useAuthActions } from "@convex-dev/auth/react";
-import TagInputContainer from "../ui/tag-input-presentation";
+import {
+  InviteMembersForm,
+  InviteMembersFormValues,
+} from "./invite-members-form";
 
-type MemberRole = "admin" | "member";
+const orgNameSchema = z.object({
+  name: z
+    .string()
+    .min(3, { message: "Organization name must be at least 3 characters" })
+    .max(20, { message: "Organization name cannot exceed 20 characters" }),
+});
 
-interface TeamMember {
-  email: string;
-  role: MemberRole;
-}
+type OrgNameFormValues = z.infer<typeof orgNameSchema>;
 
-export function CreateOrganizationDialog() {
+type CreateOrganizationDialogProps = {
+  hasOrgId: boolean;
+};
+
+export function CreateOrganizationDialog({
+  hasOrgId,
+}: CreateOrganizationDialogProps) {
   const { showCreateDialog, setShowCreateDialog, setCurrentOrgId } =
     useOrganizationStore();
   const { signIn } = useAuthActions();
   const currentUser = useQuery(api.users.currentUser);
   const organizations = useQuery(api.organization.list);
   const [step, setStep] = useState(0);
-  const [name, setName] = useState("");
-  const [members, setMembers] = useState<TeamMember[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [orgName, setOrgName] = useState("");
   const { toast } = useToast();
+  const [loading, setLoading] = useState(false);
 
   const createOrg = useMutation(api.organization.create);
   const inviteMembers = useMutation(api.organization.inviteMembers);
 
   useEffect(() => {
-    if (organizations?.length === 0) {
-      setShowCreateDialog(true);
-    } else if (organizations?.[0]?._id) {
-      setCurrentOrgId(organizations[0]._id);
-    }
-  }, [organizations, setCurrentOrgId, setShowCreateDialog]);
+    if (currentUser && organizations !== undefined) {
+      const hasNoOrgs = organizations?.length === 0;
+      const isLoggedIn = !!currentUser;
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+      // Only show dialog automatically if user has no organization ID
+      if (isLoggedIn && hasNoOrgs && !showCreateDialog && !hasOrgId) {
+        setShowCreateDialog(true);
+      }
+    }
+  }, [
+    currentUser,
+    organizations,
+    showCreateDialog,
+    setShowCreateDialog,
+    hasOrgId,
+  ]);
+
+  const orgNameForm = useForm<OrgNameFormValues>({
+    resolver: zodResolver(orgNameSchema),
+    defaultValues: {
+      name: "",
+    },
+  });
+
+  const handleOrgNameSubmit = async (values: OrgNameFormValues) => {
+    setOrgName(values.name);
+    setStep(1);
+  };
+
+  const handleCreateWithMembers = async (values: InviteMembersFormValues) => {
     setLoading(true);
 
     try {
-      const org = await createOrg({ name });
+      // Step 1: Create the organization
+      const org = await createOrg({ name: orgName });
+      if (!org?._id) throw new Error("Failed to create organization");
 
+      setCurrentOrgId(org._id);
+      const currentUserEmail = currentUser?.email;
+      if (!currentUserEmail) throw new Error("User email not found");
+
+      // Step 2: Handle member invitations if any exist
+      if (values.members.length > 0) {
+        const inviteResults = await inviteMembers({
+          organizationId: org._id,
+          emails: values.members.map((m) => m.email),
+          role: values.members[0].role,
+        });
+
+        // Process successful invites
+        const signInPromises = inviteResults.successful.map(async (invite) => {
+          const member = values.members.find((m) => m.email === invite.email);
+          if (!member || !invite.token) return; // Add null check for token
+
+          const formData = new FormData();
+          formData.set("email", member.email);
+          formData.set(
+            "redirectTo",
+            `/verify?${new URLSearchParams({
+              orgName: orgName,
+              inviter: currentUserEmail,
+              role: member.role,
+              email: member.email,
+              orgToken: invite.token, // Now we know token exists
+            }).toString()}`,
+          );
+
+          try {
+            await signIn("org-invite", formData);
+            return { email: member.email, status: "success" as const };
+          } catch (error) {
+            return {
+              email: member.email,
+              status: "failed" as const,
+              error,
+            };
+          }
+        });
+
+        // Process sign-in results
+        const signInResults = await Promise.allSettled(signInPromises);
+        // Count successful and failed invites
+        const successfulInvites = inviteResults.successCount;
+        const failedInvites = inviteResults.failureCount;
+
+        // Show appropriate toast messages
+        if (successfulInvites > 0) {
+          toast({
+            title: `Organization created with ${successfulInvites} team member${successfulInvites > 1 ? "s" : ""}`,
+            description:
+              failedInvites > 0
+                ? `${failedInvites} invitation${failedInvites > 1 ? "s" : ""} failed to send`
+                : undefined,
+          });
+        }
+
+        // Show failed invites in separate toasts
+        inviteResults.failed.forEach(({ email, error }) => {
+          toast({
+            title: `Failed to invite ${email}`,
+            description: error,
+            variant: "destructive",
+          });
+        });
+      } else {
+        // No members to invite
+        toast({
+          title: "Organization created successfully",
+        });
+      }
+
+      setShowCreateDialog(false);
+    } catch (error) {
+      toast({
+        title: "Failed to create organization",
+        description:
+          error instanceof Error
+            ? error.message
+            : "An unexpected error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSkip = async () => {
+    setLoading(true);
+    try {
+      const org = await createOrg({ name: orgName });
       if (org?._id) {
         setCurrentOrgId(org._id);
-        const validMembers = members.filter((member) => member.email);
-        const currentUserEmail = currentUser?.email;
-
-        if (!currentUserEmail) {
-          throw new Error("User email not found");
-        }
-
-        if (validMembers.length > 0) {
-          const inviteResults = await inviteMembers({
-            organizationId: org._id,
-            emails: validMembers.map((m) => m.email),
-            role: members[0].role,
-          });
-
-          await Promise.all(
-            validMembers.map(async (member) => {
-              const invite = inviteResults.find(
-                (r) => r.email === member.email,
-              );
-              const formData = new FormData();
-              formData.set("email", member.email);
-              formData.set(
-                "redirectTo",
-                `/verify?orgName=${encodeURIComponent(name)}&inviter=${encodeURIComponent(currentUserEmail)}&role=${member.role}&email=${member.email}&orgToken=${invite?.token}`,
-              );
-              return signIn("org-invite", formData);
-            }),
-          );
-        }
-
-        if (step === 1) {
-          toast({ title: "Organization created successfully" });
-          setShowCreateDialog(false);
-        } else {
-          toast({
-            title: "Organization created! Let's invite some team members",
-          });
-          setStep(1);
-        }
+        toast({
+          title: "Organization created successfully",
+        });
+        setShowCreateDialog(false);
       }
     } catch (error) {
       toast({
@@ -117,104 +212,77 @@ export function CreateOrganizationDialog() {
     }
   };
 
-  http: return (
+  const canCloseDialog =
+    hasOrgId || (organizations && organizations.length > 0);
+
+  return (
     <Dialog
       open={showCreateDialog}
       onOpenChange={(open) => {
-        if (!open && organizations?.length === 0) return;
+        if (!open && !canCloseDialog) return;
         setShowCreateDialog(open);
+        if (open) {
+          setStep(0);
+          setOrgName("");
+          orgNameForm.reset();
+        }
       }}
     >
       <DialogContent
         onInteractOutside={(e) => {
-          if (organizations?.length === 0) {
+          if (!canCloseDialog) {
             e.preventDefault();
           }
         }}
         className="sm:max-w-[425px]"
       >
         <DialogHeader>
-          <DialogTitle>Create Print Shop</DialogTitle>
+          <DialogTitle>Create New Organization</DialogTitle>
           <DialogDescription>
             {step === 0
               ? "Set up your organization to start managing print requests"
               : "Invite team members to collaborate (optional)"}
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {step === 0 ? (
-            <>
-              <div className="space-y-2">
-                <label htmlFor="name" className="text-sm font-medium">
-                  Organization Name
-                </label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Enter your print shop name"
-                  required
-                  disabled={loading}
-                />
-              </div>
+
+        {step === 0 ? (
+          <Form {...orgNameForm}>
+            <form
+              onSubmit={orgNameForm.handleSubmit(handleOrgNameSubmit)}
+              className="space-y-4"
+            >
+              <FormField
+                control={orgNameForm.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Organization Name</FormLabel>
+                    <FormControl>
+                      <Input
+                        placeholder="Enter your print shop name"
+                        {...field}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <div className="flex justify-end">
-                <Button
-                  type="submit"
-                  onClick={() => !loading && name.trim() && setStep(1)}
-                  disabled={loading || !name.trim()}
-                >
+                <Button type="submit" disabled={loading}>
                   Next
                 </Button>
               </div>
-            </>
-          ) : (
-            <div className="space-y-4">
-              <TagInputContainer
-                tags={members.map((m) => m.email)}
-                onTagsChange={(emails) => {
-                  setMembers(
-                    emails.map((email) => ({
-                      email,
-                      role: members[0]?.role || "member",
-                    })),
-                  );
-                }}
-                placeholder="Enter email addresses..."
-                disabled={loading}
-              />
-              <div className="flex items-center gap-4">
-                <div className="flex-1">
-                  <Select
-                    value={members[0]?.role || "member"}
-                    onValueChange={(value: MemberRole) => {
-                      setMembers(members.map((m) => ({ ...m, role: value })));
-                    }}
-                    disabled={loading}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Role: Member" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="member">Member</SelectItem>
-                      <SelectItem value="admin">Admin</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setShowCreateDialog(false)}
-                  disabled={loading}
-                >
-                  Skip
-                </Button>
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Creating..." : "Create Organization"}
-                </Button>
-              </div>
-            </div>
-          )}
-        </form>
+            </form>
+          </Form>
+        ) : (
+          <InviteMembersForm
+            onSubmit={handleCreateWithMembers}
+            onSkip={handleSkip}
+            loading={loading}
+            showSkip={true}
+          />
+        )}
       </DialogContent>
     </Dialog>
   );

@@ -1,6 +1,7 @@
 import React, { useState, KeyboardEvent } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 
 interface TagInputProps {
   tags: string[];
@@ -11,47 +12,48 @@ interface TagInputProps {
 
 const TagInputPresentation = ({
   tags,
-
   onTagRemove,
-  inputValue,
-  onInputChange,
+  textareaValue,
+  onTextareaChange,
   onKeyDown,
   placeholder,
   disabled,
 }: TagInputProps & {
-  inputValue: string;
-  onInputChange: (value: string) => void;
-  onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
-  onTagAdd: (tag: string) => void;
+  textareaValue: string;
+  onTextareaChange: (value: string) => void;
+  onKeyDown: (e: KeyboardEvent<HTMLTextAreaElement>) => void;
   onTagRemove: (index: number) => void;
 }) => (
-  <div className="flex min-h-[80px] w-full flex-wrap gap-2 rounded-md border border-input bg-background px-3 py-2 text-sm">
-    {tags.map((tag, index) => (
-      <span
-        key={index}
-        className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1"
-      >
-        {tag}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          className="h-auto p-0 hover:bg-transparent"
-          onClick={() => onTagRemove(index)}
-          disabled={disabled}
+  <div className="space-y-2">
+    <div className="flex flex-wrap gap-2">
+      {tags.map((tag, index) => (
+        <span
+          key={index}
+          className="inline-flex items-center gap-1 rounded-md bg-secondary px-2 py-1"
         >
-          <X className="h-3 w-3" />
-        </Button>
-      </span>
-    ))}
-    <input
-      type="text"
-      value={inputValue}
-      onChange={(e) => onInputChange(e.target.value)}
+          {tag}
+          <div className="group inline-flex items-center gap-1">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-auto p-0 hover:bg-transparent"
+              onClick={() => onTagRemove(index)}
+              disabled={disabled}
+            >
+              <X className="h-3 w-3 group-hover:rotate-90 transition-transform duration-300" />
+            </Button>
+          </div>
+        </span>
+      ))}
+    </div>
+    <Textarea
+      value={textareaValue}
+      onChange={(e) => onTextareaChange(e.target.value)}
       onKeyDown={onKeyDown}
       placeholder={placeholder}
       disabled={disabled}
-      className="flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+      className="min-h-[100px] resize-none"
     />
   </div>
 );
@@ -62,30 +64,43 @@ const TagInputContainer = ({
   placeholder,
   disabled,
 }: TagInputProps) => {
-  const [inputValue, setInputValue] = useState("");
+  const [textareaValue, setTextareaValue] = useState("");
 
   const validateEmail = (email: string) => {
     return email.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/);
   };
 
-  const handleTagAdd = (tag: string) => {
-    const trimmedTag = tag.trim();
-    if (trimmedTag && validateEmail(trimmedTag) && !tags.includes(trimmedTag)) {
-      onTagsChange([...tags, trimmedTag]);
+  const handleTagAdd = (value: string) => {
+    const emails = value
+      .split(/[\n,]/)
+      .map((email) => email.trim())
+      .filter(
+        (email) => email && validateEmail(email) && !tags.includes(email),
+      );
+
+    if (emails.length > 0) {
+      onTagsChange([...tags, ...emails]);
+      setTextareaValue("");
     }
-    setInputValue("");
   };
 
   const handleTagRemove = (index: number) => {
     onTagsChange(tags.filter((_, i) => i !== index));
   };
 
-  const handleKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
       e.preventDefault();
-      handleTagAdd(inputValue);
-    } else if (e.key === "Backspace" && !inputValue && tags.length > 0) {
-      onTagsChange(tags.slice(0, -1));
+      handleTagAdd(textareaValue);
+    }
+  };
+
+  const handleTextareaChange = (value: string) => {
+    setTextareaValue(value);
+
+    // Auto-add tags when user types or pastes emails followed by commas or newlines
+    if (value.endsWith(",") || value.endsWith("\n")) {
+      handleTagAdd(value);
     }
   };
 
@@ -93,10 +108,9 @@ const TagInputContainer = ({
     <TagInputPresentation
       tags={tags}
       onTagsChange={onTagsChange}
-      onTagAdd={handleTagAdd}
       onTagRemove={handleTagRemove}
-      inputValue={inputValue}
-      onInputChange={setInputValue}
+      textareaValue={textareaValue}
+      onTextareaChange={handleTextareaChange}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
       disabled={disabled}

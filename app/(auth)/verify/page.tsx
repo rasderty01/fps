@@ -6,6 +6,7 @@ import { useAuthActions } from "@convex-dev/auth/react";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useToast } from "@/components/ui/use-toast";
+import { setCurrentOrgId } from "@/actions/cookie-store-orgId";
 
 export default function VerifyPage() {
   const searchParams = useSearchParams();
@@ -41,7 +42,8 @@ export default function VerifyPage() {
           })(),
         );
 
-        await acceptInvite({ orgtoken: orgToken, email });
+        const data = await acceptInvite({ orgtoken: orgToken, email });
+        await setCurrentOrgId(data);
         toast({ title: "Successfully joined organization!" });
         router.push("/dashboard");
       } catch (error) {

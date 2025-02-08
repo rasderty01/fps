@@ -3,13 +3,20 @@ import { OrganizationSwitcher } from "@/components/organizations/organization-sw
 import {
   Sidebar,
   SidebarContent,
+  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarGroupLabel,
   SidebarMenu,
   SidebarMenuButton,
   SidebarMenuItem,
+  SidebarRail,
 } from "@/components/ui/sidebar";
+import { getCurrentOrgId } from "@/actions/cookie-store-orgId";
+import { NavUser } from "./nav-user";
+import { preloadQuery } from "convex/nextjs";
+import { api } from "@/convex/_generated/api";
+import { convexAuthNextjsToken } from "@convex-dev/auth/nextjs/server";
 
 const items = [
   {
@@ -34,12 +41,19 @@ const items = [
   },
 ];
 
-export function AppSidebar() {
+export async function AppSidebar() {
+  const currentOrgId = await getCurrentOrgId();
+
+  const user = await preloadQuery(
+    api.users.currentUser,
+    {},
+    { token: await convexAuthNextjsToken() },
+  );
   return (
     <Sidebar>
       <SidebarContent>
         <div className="p-4">
-          <OrganizationSwitcher />
+          <OrganizationSwitcher orgId={currentOrgId ?? ""} />
         </div>
         <SidebarGroup>
           <SidebarGroupLabel>PrintBridge</SidebarGroupLabel>
@@ -59,6 +73,10 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <NavUser preloadeduser={user} />
+      </SidebarFooter>
+      <SidebarRail />
     </Sidebar>
   );
 }
