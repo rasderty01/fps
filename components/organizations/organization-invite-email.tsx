@@ -1,4 +1,3 @@
-import { Doc } from "@/convex/_generated/dataModel";
 import {
   Container,
   Head,
@@ -13,7 +12,7 @@ interface OrganizationInviteEmailProps {
   organizationName: string;
   code: string;
   expires: Date;
-  inviterEmail: Doc<"users">;
+  inviterEmail: string;
   role: string;
 }
 

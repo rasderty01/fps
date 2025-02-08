@@ -104,10 +104,25 @@ export const inviteMembers = mutation({
     if (!userId) throw new Error("Not authenticated");
 
     const timestamp = Date.now();
-    return Promise.all(
-      emails.map((email) =>
-        createInvite(ctx, organizationId, email, role, userId, timestamp),
-      ),
+
+    const invites = await Promise.all(
+      emails.map(async (email) => {
+        const inviteId = await createInvite(
+          ctx,
+          organizationId,
+          email,
+          role,
+          userId,
+          timestamp,
+        );
+        const invite = await ctx.db.get(inviteId);
+        return {
+          email,
+          token: invite?.token,
+        };
+      }),
     );
+
+    return invites;
   },
 });

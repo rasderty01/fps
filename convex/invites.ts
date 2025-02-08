@@ -2,7 +2,6 @@ import { internalMutation, mutation } from "./_generated/server";
 import { Resend } from "resend";
 import { alphabet, generateRandomString } from "oslo/crypto";
 import { v } from "convex/values";
-import { getAuthUserId } from "@convex-dev/auth/server";
 
 export const processInvites = internalMutation({
   handler: async (ctx) => {
@@ -53,14 +52,19 @@ async function generateVerificationToken() {
 }
 
 export const acceptInvite = mutation({
-  args: { token: v.string(), email: v.string() },
-  handler: async (ctx, { token, email }) => {
-    const userId = await getAuthUserId(ctx);
-    if (!userId) throw new Error("Not authenticated");
+  args: { orgtoken: v.string(), email: v.string() },
+  handler: async (ctx, { orgtoken, email }) => {
+    console.log("Accepting invite for", email, "with token", orgtoken);
+    const userId = await ctx.db
+      .query("users")
+      .filter((q) => q.eq(q.field("email"), email))
+      .first();
+
+    if (!userId) throw new Error("User not found");
 
     const invite = await ctx.db
       .query("organizationInvites")
-      .filter((q) => q.eq(q.field("token"), token))
+      .filter((q) => q.eq(q.field("token"), orgtoken))
       .filter((q) => q.eq(q.field("email"), email))
       .first();
 
@@ -72,7 +76,7 @@ export const acceptInvite = mutation({
     // Create organization member
     await ctx.db.insert("organizationMembers", {
       organizationId: invite.organizationId,
-      userId, // Use the authenticated user's ID
+      userId: userId._id,
       role: invite.role,
       joinedAt: Date.now(),
       invitedBy: invite.invitedBy,
